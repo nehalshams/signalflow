@@ -19,6 +19,7 @@ import {
   Zap,
 } from "lucide-react";
 import heroChart from "@/assets/hero-chart.jpg";
+import { Link } from "react-router-dom";
 
 const tickers = [
   { sym: "AAPL", price: "229.84", chg: "+1.24%", up: true },
@@ -133,7 +134,9 @@ const Index = () => {
             <a href="#testimonials" className="hover:text-foreground transition-smooth">Customers</a>
           </nav>
           <div className="hidden md:flex items-center gap-2">
-            <Button variant="ghost" className="text-sm">Login</Button>
+            <Button asChild variant="outline" className="flex-1">
+                <Link to="/login" onClick={() => setOpen(false)}>Login</Link>
+            </Button>
             <Button className="bg-gradient-primary text-primary-foreground font-semibold hover:opacity-90 shadow-elegant">
               Register <ArrowRight className="ml-1 h-4 w-4" />
             </Button>
