@@ -11,23 +11,18 @@ class StockSerializer(serializers.ModelSerializer):
 
 class WatchlistItemSerializer(serializers.ModelSerializer):
     stock = StockSerializer(read_only=True)
-    symbol = serializers.CharField(write_only=True)
+    stock_id = serializers.PrimaryKeyRelatedField(
+        queryset=Stock.objects.all(), write_only=True
+    )
 
     class Meta:
         model = WatchlistItem
-        fields = ['id', 'stock', 'symbol', 'added_at']
+        fields = ['id', 'stock', 'stock_id', 'added_at']
         read_only_fields = ['id', 'added_at']
-
-    def validate_symbol(self, value):
-        try:
-            self.context['stock'] = Stock.objects.get(symbol=value.upper())
-        except Stock.DoesNotExist:
-            raise serializers.ValidationError(f'No stock found with symbol "{value.upper()}".')
-        return value
 
     def create(self, validated_data):
         user = self.context['request'].user
-        stock = self.context['stock']
+        stock = validated_data['stock_id']
         item, created = WatchlistItem.objects.get_or_create(user=user, stock=stock)
         self.context['created'] = created
         return item

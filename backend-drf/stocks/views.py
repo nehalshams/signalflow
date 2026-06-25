@@ -44,13 +44,12 @@ class WatchlistView(generics.ListCreateAPIView):
 
 
 class WatchlistItemDeleteView(generics.DestroyAPIView):
-    """DELETE /api/v1/watchlist/<symbol>/ -> remove a stock from my watchlist."""
+    """DELETE /api/v1/watchlist/<stock_id>/ -> remove a stock from my watchlist."""
     permission_classes = [IsAuthenticated]
 
     def get_object(self):
-        symbol = self.kwargs['symbol'].upper()
         return generics.get_object_or_404(
-            WatchlistItem, user=self.request.user, stock__symbol=symbol
+            WatchlistItem, user=self.request.user, stock_id=self.kwargs['stock_id']
         )
 
 

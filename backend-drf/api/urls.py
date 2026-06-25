@@ -17,7 +17,7 @@ urlpatterns = [
     path('stocks/search/', StockViews.StockSearchView.as_view()),
 
     path('watchlist/', StockViews.WatchlistView.as_view()),
-    path('watchlist/<str:symbol>/', StockViews.WatchlistItemDeleteView.as_view()),
+    path('watchlist/<int:stock_id>/', StockViews.WatchlistItemDeleteView.as_view()),
 
     path('stocks/<str:ticker>/', StockViews.StockDataView.as_view()),
 ]
