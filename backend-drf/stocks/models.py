@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 
@@ -6,6 +7,7 @@ class Stock(models.Model):
     company_name = models.CharField(max_length=255)
     sector = models.CharField(max_length=100, blank=True)
     is_active = models.BooleanField(default=True)
+    exchange = models.CharField(max_length=50, default='NSE')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -18,3 +20,29 @@ class Stock(models.Model):
 
     def __str__(self):
         return f'{self.symbol} - {self.company_name}'
+
+
+class WatchlistItem(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='watchlist',
+    )
+    stock = models.ForeignKey(
+        Stock,
+        on_delete=models.CASCADE,
+        related_name='watched_by',
+    )
+    added_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-added_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'stock'],
+                name='unique_user_stock_watchlist',
+            )
+        ]
+
+    def __str__(self):
+        return f'{self.user} -> {self.stock.symbol}'

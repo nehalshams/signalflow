@@ -14,5 +14,10 @@ urlpatterns = [
 
     path('protected-view/', UserViews.ProtectedView.as_view()),
 
+    path('stocks/search/', StockViews.StockSearchView.as_view()),
+
+    path('watchlist/', StockViews.WatchlistView.as_view()),
+    path('watchlist/<str:symbol>/', StockViews.WatchlistItemDeleteView.as_view()),
+
     path('stocks/<str:ticker>/', StockViews.StockDataView.as_view()),
 ]
