@@ -7,9 +7,15 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Stock, WatchlistItem
-from .serializers import StockSerializer, WatchlistItemSerializer
 
+import os
+from ml_models.pipeline import run_training_pipeline, SAVED_MODELS_DIR
+from ml_models.predict import predict_future
+
+
+from .models import Stock, WatchlistItem, StockPrice
+from .serializers import StockSerializer, WatchlistItemSerializer, StockPriceSerializer
+from .services import fetch_stock_prices
 
 class StockSearchView(generics.ListAPIView):
     """GET /api/v1/stocks/search/?q=rel -> stocks matching symbol or company name."""
@@ -83,3 +89,49 @@ class StockDataView(APIView):
         ]
 
         return Response({'ticker': ticker.upper(), 'count': len(data), 'data': data})
+
+
+class StockPriceView(APIView):
+    permission_classes = [IsAuthenticated]
+    print('kkkkkkkkkkk')
+    def get(self, request, symbol):
+        try:
+            stock = Stock.objects.get(symbol=symbol.upper())
+            print(stock)
+        except Stock.DoesNotExist:
+            return Response(
+                {'error': 'Stock not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Fetch fresh data if no prices exist
+        prices = StockPrice.objects.filter(stock=stock)
+        if not prices.exists():
+            fetch_stock_prices(symbol.upper())
+            prices = StockPrice.objects.filter(stock=stock)
+
+        # Optional: filter by period
+        period = request.query_params.get('period', '30')
+        prices = prices[:int(period)]
+
+        serializer = StockPriceSerializer(prices, many=True)
+        return Response({
+            'symbol': stock.symbol,
+            'name': stock.company_name,
+            'prices': serializer.data
+        })
+    
+
+class TrainModelView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, tikcer):
+
+        years = request.data.years
+        try:
+            matrices = run_training_pipeline(tikcer, years)
+            return matrices
+        except:
+            raise Exception('Error')
+
+        

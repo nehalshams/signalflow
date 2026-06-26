@@ -1,7 +1,6 @@
 from rest_framework import serializers
 
-from .models import Stock, WatchlistItem
-
+from .models import Stock, WatchlistItem, StockPrice
 
 class StockSerializer(serializers.ModelSerializer):
     class Meta:
@@ -26,3 +25,12 @@ class WatchlistItemSerializer(serializers.ModelSerializer):
         item, created = WatchlistItem.objects.get_or_create(user=user, stock=stock)
         self.context['created'] = created
         return item
+
+class StockPriceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StockPrice
+        fields = ['date', 'open', 'high', 'low', 'close', 'volume']
+
+
+
+
