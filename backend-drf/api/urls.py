@@ -20,4 +20,7 @@ urlpatterns = [
     path('watchlist/<int:stock_id>/', StockViews.WatchlistItemDeleteView.as_view()),
 
     path('stocks/<str:ticker>/', StockViews.StockDataView.as_view()),
+
+    # stock prices
+    path('stocks/<str:symbol>/prices/', StockViews.StockPriceView.as_view(), name='stock_prices'),
 ]
