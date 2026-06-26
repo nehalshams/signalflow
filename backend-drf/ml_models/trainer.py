@@ -1,118 +1,84 @@
 import os
-from typing import Tuple
 
 import numpy as np
-import tensorflow as tf
 from tensorflow.keras.models import Sequential, load_model
-from tensorflow.keras.layers import LSTM, Dense, Dropout, Input
-from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
-from tensorflow.keras.optimizers import Adam
-
-import os
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-
-# Sequential — a linear stack of layers, simplest way to build a model
-# LSTM — the recurrent layer that understands sequences
-# Dense — regular fully connected layer
-# Dropout — randomly disables neurons during training to prevent overfitting
-# Input — explicitly defines the input shape
-# EarlyStopping — stops training when the model stops improving
-# ReduceLROnPlateau — lowers the learning rate when progress stalls
-# Adam — the optimizer that adjusts weights during training
+from tensorflow.keras.layers import LSTM, Dense, Dropout
+from tensorflow.keras.callbacks import EarlyStopping
 
 
-def build_model(
-    look_back,
-    n_features,
-    lstm_units=(50, 50),
-    dropout_rate=0.2,
-    learning_rate=0.001,
-):
-    model = Sequential()
+class ModelTrainer:
 
-    model.add(Input(shape=(look_back, n_features)))
+    def __init__(self, lstm_units=50, dropout_rate=0.2, epochs=50, batch_size=32):
+        self.lstm_units = lstm_units
+        self.dropout_rate = dropout_rate
+        self.epochs = epochs
+        self.batch_size = batch_size
+        self.model = None
 
-    for i, units in enumerate(lstm_units):
-        return_seq = i < len(lstm_units) - 1
-        model.add(LSTM(units, return_sequences=return_seq))
-        model.add(Dropout(dropout_rate))
+    # ── Build ────────────────────────────────────────────────────
 
-    model.add(Dense(25, activation='relu'))
-    model.add(Dense(1))
+    def build_model(self, input_shape):
+        """Define and compile the LSTM architecture.
 
-    model.compile(
-        optimizer=Adam(learning_rate=learning_rate),
-        loss='mean_squared_error',
-        metrics=['mae'],
-    )
+        Args:
+            input_shape: (window_size, num_features) from X_train.shape[1:]
+        """
+        self.model = Sequential([
+            LSTM(self.lstm_units, return_sequences=True, input_shape=input_shape),
+            Dropout(self.dropout_rate),
 
-    return model
+            LSTM(self.lstm_units, return_sequences=False),
+            Dropout(self.dropout_rate),
 
+            Dense(25, activation='relu'),
+            Dense(1),
+        ])
 
-def train_model(model, X_train, y_train, X_test, y_test, epochs=50, batch_size=32):
-    callbacks = [
-        EarlyStopping(
+        self.model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+        return self.model
+
+    # ── Train ────────────────────────────────────────────────────
+
+    def train(self, X_train, y_train, X_test, y_test):
+        """Train the model with early stopping.
+
+        Returns the Keras History object (contains loss curves).
+        """
+        if self.model is None:
+            raise ValueError("Model not built. Call build_model first.")
+
+        early_stop = EarlyStopping(
             monitor='val_loss',
-            patience=10,
-            restore_best_weights=True,
-        ),
-        ReduceLROnPlateau(
-            monitor='val_loss',
-            factor=0.5,
             patience=5,
-            min_lr=1e-6,
-        ),
-    ]
+            restore_best_weights=True,
+        )
 
-    history = model.fit(
-        X_train, y_train,
-        validation_data=(X_test, y_test),
-        epochs=epochs,
-        batch_size=batch_size,
-        callbacks=callbacks,
-        verbose=1,
-    )
+        history = self.model.fit(
+            X_train, y_train,
+            epochs=self.epochs,
+            batch_size=self.batch_size,
+            validation_data=(X_test, y_test),
+            callbacks=[early_stop],
+            verbose=1,
+        )
 
-    return history
+        return history
 
+    # ── Evaluate ─────────────────────────────────────────────────
 
-def evaluate_model(model, X_test, y_test, scaler):
-    from .preprocessing import FEATURE_COLS, CLOSE_INDEX
+    def evaluate(self, X_test, y_test):
+        """Return test loss and MAE."""
+        if self.model is None:
+            raise ValueError("No model to evaluate.")
+        return self.model.evaluate(X_test, y_test, verbose=0)
 
-    predictions_scaled = model.predict(X_test, verbose=0).flatten()
+    # ── Persistence ──────────────────────────────────────────────
 
-    # Inverse-transform requires a full-width array (all 26 columns)
-    # We only have the Close column, so we build a dummy array
-    n_features = len(FEATURE_COLS)
-    dummy = np.zeros((len(predictions_scaled), n_features))
+    def save_model(self, path):
+        """Save trained model in .keras format."""
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        self.model.save(path)
 
-    dummy[:, CLOSE_INDEX] = predictions_scaled
-    pred_prices = scaler.inverse_transform(dummy)[:, CLOSE_INDEX]
-
-    dummy[:, CLOSE_INDEX] = y_test
-    actual_prices = scaler.inverse_transform(dummy)[:, CLOSE_INDEX]
-
-    mse = float(np.mean((pred_prices - actual_prices) ** 2))
-    rmse = float(np.sqrt(mse))
-    mae = float(np.mean(np.abs(pred_prices - actual_prices)))
-
-    mask = actual_prices != 0
-    mape = float(np.mean(np.abs(
-        (actual_prices[mask] - pred_prices[mask]) / actual_prices[mask]
-    )) * 100)
-
-    return {
-        'mse': round(mse, 4),
-        'rmse': round(rmse, 4),
-        'mae': round(mae, 4),
-        'mape': round(mape, 4),
-    }
-
-
-
-def save_trained_model(model, path):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    model.save(path)
-
-def load_trained_model(path):
-    return load_model(path)
+    def load_model(self, path):
+        """Load a previously saved model."""
+        self.model = load_model(path)

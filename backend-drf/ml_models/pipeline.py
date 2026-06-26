@@ -1,101 +1,127 @@
 import os
-import sys
-from datetime import datetime
 
-import yfinance as yf
+import pandas as pd
 
-from .features import add_all_features
-from .preprocessing import (
-    FEATURE_COLS,
-    scale_data,
-    create_sequences,
-    train_test_split,
-    save_scaler,
-)
-from .trainer import (
-    build_model,
-    train_model,
-    evaluate_model,
-    save_trained_model,
-)
+from .features import FeatureEngineer
+from .preprocessing import DataPreprocessor
+from .trainer import ModelTrainer
+from .predict import Predictor
 
 
-SAVED_MODELS_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    'saved_models',
-)
+# default directory for saved models and scalers
+DEFAULT_MODEL_DIR = os.path.join(os.path.dirname(__file__), 'saved_models')
 
 
+class Pipeline:
+    """Orchestrates the full ML workflow: feature engineering → preprocessing → training → prediction."""
 
-def run_training_pipeline(
-    ticker,
-    years=10,
-    look_back=60,
-    epochs=50,
-    batch_size=32,
-    test_ratio=0.2,
-    save_dir=SAVED_MODELS_DIR,
-):
-    ticker = ticker.upper()
+    def __init__(
+        self,
+        sma_windows=(20, 50),
+        rsi_period=14,
+        bb_window=20,
+        window_size=60,
+        test_ratio=0.2,
+        lstm_units=50,
+        dropout_rate=0.2,
+        epochs=50,
+        batch_size=32,
+        model_dir=DEFAULT_MODEL_DIR,
+    ):
+        self.feature_engineer = FeatureEngineer(
+            sma_windows=sma_windows,
+            rsi_period=rsi_period,
+            bb_window=bb_window,
+        )
+        self.preprocessor = DataPreprocessor(
+            window_size=window_size,
+            test_ratio=test_ratio,
+        )
+        self.trainer = ModelTrainer(
+            lstm_units=lstm_units,
+            dropout_rate=dropout_rate,
+            epochs=epochs,
+            batch_size=batch_size,
+        )
+        self.model_dir = model_dir
 
-    # ── Stage 1: Fetch raw OHLCV data from Yahoo Finance ─────
-    now = datetime.now()
-    start = datetime(now.year - years, now.month, now.day)
-    df = yf.download(ticker, start=start, end=now)
+    # ── Training ─────────────────────────────────────────────────
 
-    if df.empty:
-        raise ValueError(f'No data found for ticker "{ticker}"')
+    def train(self, raw_df, ticker):
+        """Full training pipeline for a single ticker.
 
-    df = df.reset_index()
-    df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
-    print(f'[1/5] Fetched {len(df)} rows for {ticker}')
+        Args:
+            raw_df:  DataFrame with Date, Open, High, Low, Close, Volume
+            ticker:  e.g. 'RELIANCE' — used for naming saved files
 
-    # ── Stage 2: Compute technical indicators ────────────────
-    df = add_all_features(df)
-    print(f'[2/5] Features computed — {len(df)} rows remain after NaN drop')
+        Returns:
+            dict with training metrics and file paths
+        """
+        # 1. feature engineering
+        featured_df = self.feature_engineer.add_all_features(raw_df)
 
-    # ── Stage 3: Scale, create sequences, split ──────────────
-    scaled_data, scaler = scale_data(df)
-    X, y = create_sequences(scaled_data, look_back=look_back)
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_ratio=test_ratio)
-    print(f'[3/5] Sequences created — train: {len(X_train)}, test: {len(X_test)}')
+        # 2. preprocessing — fit scaler, create sequences, split
+        X_train, X_test, y_train, y_test = self.preprocessor.fit_and_transform(featured_df)
 
-    # ── Stage 4: Build and train the LSTM ────────────────────
-    n_features = X_train.shape[2]
-    model = build_model(look_back=look_back, n_features=n_features)
-    model.summary()
-    print(f'[4/5] Training started ...')
-    train_model(model, X_train, y_train, X_test, y_test,
-                epochs=epochs, batch_size=batch_size)
+        # 3. build and train
+        input_shape = (X_train.shape[1], X_train.shape[2])
+        self.trainer.build_model(input_shape)
+        history = self.trainer.train(X_train, y_train, X_test, y_test)
 
-    # ── Stage 5: Evaluate and save ───────────────────────────
-    metrics = evaluate_model(model, X_test, y_test, scaler)
-    print(f'[5/5] Evaluation — RMSE: {metrics["rmse"]}, MAE: {metrics["mae"]}, MAPE: {metrics["mape"]}%')
+        # 4. evaluate
+        test_loss, test_mae = self.trainer.evaluate(X_test, y_test)
 
-    ticker_dir = os.path.join(save_dir, ticker)
-    model_path = os.path.join(ticker_dir, 'model.keras')
-    scaler_path = os.path.join(ticker_dir, 'scaler.pkl')
+        # 5. save model and scaler
+        model_path, scaler_path = self._save_artifacts(ticker)
 
-    save_trained_model(model, model_path)
-    save_scaler(scaler, scaler_path)
+        return {
+            'ticker': ticker,
+            'model_path': model_path,
+            'scaler_path': scaler_path,
+            'test_loss': round(test_loss, 6),
+            'test_mae': round(test_mae, 6),
+            'epochs_run': len(history.history['loss']),
+            'samples': {
+                'train': len(X_train),
+                'test': len(X_test),
+            },
+        }
 
-    print(f'Model saved to {model_path}')
-    print(f'Scaler saved to {scaler_path}')
+    # ── Prediction ───────────────────────────────────────────────
 
-    return {
-        'ticker': ticker,
-        'metrics': metrics,
-        'model_path': model_path,
-        'scaler_path': scaler_path,
-        'training_samples': len(X_train),
-        'test_samples': len(X_test),
-    }
+    def predict(self, raw_df, ticker):
+        """Run prediction for a ticker using saved model and scaler.
 
+        Args:
+            raw_df:  recent OHLCV DataFrame (needs at least window_size + warmup rows)
+            ticker:  must match a previously trained ticker
 
-if __name__ == '__main__':
-    ticker = sys.argv[1] if len(sys.argv) > 1 else 'RELIANCE.NS'
-    result = run_training_pipeline(ticker)
-    print('\nResult:', result)
+        Returns:
+            predicted next-day closing price as float
+        """
+        model_path, scaler_path = self._artifact_paths(ticker)
 
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"No trained model found for {ticker} at {model_path}")
 
-    
+        # feature engineering on the incoming data
+        featured_df = self.feature_engineer.add_all_features(raw_df)
+
+        # load model + scaler and predict
+        predictor = Predictor(model_path, scaler_path)
+        return predictor.predict(featured_df)
+
+    # ── Helpers ──────────────────────────────────────────────────
+
+    def _artifact_paths(self, ticker):
+        ticker_dir = os.path.join(self.model_dir, ticker.upper())
+        model_path = os.path.join(ticker_dir, 'model.keras')
+        scaler_path = os.path.join(ticker_dir, 'scaler.joblib')
+        return model_path, scaler_path
+
+    def _save_artifacts(self, ticker):
+        model_path, scaler_path = self._artifact_paths(ticker)
+        os.makedirs(os.path.dirname(model_path), exist_ok=True)
+        self.trainer.save_model(model_path)
+        self.preprocessor.save_scaler(scaler_path)
+        return model_path, scaler_path

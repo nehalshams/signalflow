@@ -1,63 +1,57 @@
-from typing import List
-
 import numpy as np
-import yfinance as yf
 
-from .features import add_all_features
-from .preprocessing import (
-    FEATURE_COLS,
-    CLOSE_INDEX,
-    load_scaler,
-)
-from .trainer import load_trained_model
+from .preprocessing import DataPreprocessor
+from .trainer import ModelTrainer
 
 
-def predict_future(
-    ticker,
-    model_path,
-    scaler_path,
-    look_back=60,
-    forecast_days=30,
-):
-    # 4b — Load model and scaler
-    model = load_trained_model(model_path)
-    scaler = load_scaler(scaler_path)
+class Predictor:
+    """Load a trained model + scaler and produce predictions from raw featured data."""
 
-    # 4c — Fetch recent data and compute indicators
-    fetch_days = look_back + 100
-    df = yf.download(ticker, period=f'{fetch_days}d')
+    def __init__(self, model_path, scaler_path):
+        self.trainer = ModelTrainer()
+        self.trainer.load_model(model_path)
 
-    if df.empty:
-        raise ValueError(f'No data found for ticker "{ticker}"')
+        self.preprocessor = DataPreprocessor()
+        self.preprocessor.load_scaler(scaler_path)
 
-    df = df.reset_index()
-    df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
-    df = add_all_features(df)
+    def predict(self, featured_df):
+        """Take a featured DataFrame (output of FeatureEngineer.add_all_features),
+        return the predicted next-day closing price as a float.
 
-    # 4d — Scale and seed the window
-    data = df[FEATURE_COLS].values
-    scaled_data = scaler.transform(data)
-    current_window = scaled_data[-look_back:].copy()
+        The DataFrame must have at least window_size rows.
+        """
+        window_size = self.preprocessor.window_size
 
-    # 4e — Predict day by day
-    predictions = []
-    for day in range(1, forecast_days + 1):
-        X_input = current_window.reshape(1, look_back, len(FEATURE_COLS))
-        pred_scaled = model.predict(X_input, verbose=0)[0, 0]
+        if len(featured_df) < window_size:
+            raise ValueError(
+                f"Need at least {window_size} rows, got {len(featured_df)}."
+            )
 
-        dummy = np.zeros((1, len(FEATURE_COLS)))
-        dummy[0, CLOSE_INDEX] = pred_scaled
-        pred_price = scaler.inverse_transform(dummy)[0, CLOSE_INDEX]
+        # scale and shape into (1, window_size, num_features)
+        X = self.preprocessor.transform(featured_df)
 
-        predictions.append({
-            'day': day,
-            'predicted_close': round(float(pred_price), 2),
-        })
+        # model predicts a scaled value
+        scaled_prediction = self.trainer.model.predict(X, verbose=0)
 
-        new_row = current_window[-1].copy()
-        new_row[CLOSE_INDEX] = pred_scaled
-        current_window = np.vstack([current_window[1:], new_row])
+        # inverse-transform to get the real price
+        actual_price = self._inverse_scale(scaled_prediction[0, 0])
+        return round(float(actual_price), 2)
 
-    return predictions
+    def _inverse_scale(self, scaled_value):
+        """Convert a single scaled Close prediction back to the original price.
 
+        The scaler was fitted on all feature columns together, so to invert
+        just the target column we reconstruct a dummy row with the scaled value
+        in the correct column position and invert the whole row.
+        """
+        scaler = self.preprocessor.scaler
+        target_idx = self.preprocessor.target_col_index
+        num_features = scaler.n_features_in_
 
+        # build a dummy row of zeros, place the scaled value in the target column
+        dummy = np.zeros((1, num_features))
+        dummy[0, target_idx] = scaled_value
+
+        # inverse transform and extract the target column
+        inverted = scaler.inverse_transform(dummy)
+        return inverted[0, target_idx]
