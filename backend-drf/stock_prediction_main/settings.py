@@ -10,24 +10,41 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+import os
 from pathlib import Path
 from datetime import timedelta
+
+from celery.schedules import crontab
+from django.core.exceptions import ImproperlyConfigured
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
+def _env_bool(name, default=False):
+    return os.environ.get(name, str(default)).strip().lower() in ('1', 'true', 'yes', 'on')
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-j-s!e%t5bzm4+@a2w65@6%!-jga^aq7b0bj2vb*g7=)1pck!)p'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = _env_bool('DJANGO_DEBUG', default=True)
 
-ALLOWED_HOSTS = []
+# SECURITY WARNING: keep the secret key used in production secret!
+# Supplied via env in real deployments; a dev-only fallback is used when DEBUG.
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', '')
+if not SECRET_KEY:
+    if DEBUG:
+        SECRET_KEY = 'django-insecure-dev-only-do-not-use-in-production'
+    else:
+        raise ImproperlyConfigured(
+            'DJANGO_SECRET_KEY environment variable must be set when DEBUG is off.'
+        )
+
+# Comma-separated list, e.g. "api.example.com,www.example.com".
+ALLOWED_HOSTS = [
+    h.strip() for h in os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+    if h.strip()
+]
 
 
 # Application definition
@@ -82,12 +99,11 @@ WSGI_APPLICATION = 'stock_prediction_main.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql_psycopg2',
-        'NAME': 'signalflow_db',
-        'USER': 'postgres',
-        'PASSWORD': 'pgadmin',
-        'HOST': 'localhost',
-        'PORT': '5432',
-
+        'NAME': os.environ.get('DB_NAME', 'signalflow_db'),
+        'USER': os.environ.get('DB_USER', 'postgres'),
+        'PASSWORD': os.environ.get('DB_PASSWORD', 'pgadmin'),
+        'HOST': os.environ.get('DB_HOST', 'localhost'),
+        'PORT': os.environ.get('DB_PORT', '5432'),
     }
 }
 
@@ -145,4 +161,71 @@ AUTH_USER_MODEL = 'accounts.User'
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=5),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
+}
+
+
+# ── Celery + Redis ───────────────────────────────────────────────
+# Broker and result backend both live on Redis (different logical DBs).
+CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://localhost:6379/0')
+CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://localhost:6379/1')
+
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+
+# Schedule in IST so the daily retrain fires at the local clock time.
+CELERY_TIMEZONE = 'Asia/Kolkata'
+CELERY_ENABLE_UTC = False
+
+# Model training is long-running and CPU-bound — run one task at a time
+# per worker process and don't prefetch extra work.
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_TASK_ACKS_LATE = True
+
+# ── Cache (Redis) ────────────────────────────────────────────────
+# Used to memoize model predictions so repeat requests don't re-run the LSTM.
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': os.environ.get('DJANGO_CACHE_URL', 'redis://localhost:6379/2'),
+    }
+}
+
+# How long a cached prediction stays valid (seconds). Keys also embed the
+# model file's mtime, so a daily retrain invalidates them automatically.
+PREDICTION_CACHE_TTL = int(os.environ.get('PREDICTION_CACHE_TTL', 60 * 60 * 6))
+
+
+# ── Logging ──────────────────────────────────────────────────────
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{asctime} {levelname} {name} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+    },
+    'root': {'handlers': ['console'], 'level': 'WARNING'},
+    'loggers': {
+        'ml_models': {'handlers': ['console'], 'level': 'INFO', 'propagate': False},
+        'stocks': {'handlers': ['console'], 'level': 'INFO', 'propagate': False},
+    },
+}
+
+
+# ── Celery Beat schedule ─────────────────────────────────────────
+# Retrain every active stock daily at 08:30 IST — after the previous
+# session's close (15:30 IST) and once overnight data has settled.
+CELERY_BEAT_SCHEDULE = {
+    'daily-retrain-all-models': {
+        'task': 'stocks.tasks.retrain_all_active_models',
+        'schedule': crontab(hour=8, minute=30),
+    },
 }
