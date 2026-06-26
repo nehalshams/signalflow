@@ -1,21 +1,17 @@
-from datetime import datetime
-
-import yfinance as yf
+from celery.result import AsyncResult
 from django.db.models import Q
+from django.urls import reverse
+from kombu.exceptions import OperationalError
 from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-
-import os
-from ml_models.pipeline import run_training_pipeline, SAVED_MODELS_DIR
-from ml_models.predict import predict_future
-
-
 from .models import Stock, WatchlistItem, StockPrice
 from .serializers import StockSerializer, WatchlistItemSerializer, StockPriceSerializer
-from .services import fetch_stock_prices
+from .services import fetch_stock_prices, get_ohlcv_history, get_prediction
+from .tasks import train_model_task
+
 
 class StockSearchView(generics.ListAPIView):
     """GET /api/v1/stocks/search/?q=rel -> stocks matching symbol or company name."""
@@ -65,52 +61,31 @@ class StockDataView(APIView):
     def get(self, request, ticker):
         years = int(request.query_params.get('years', 10))
 
-        now = datetime.now()
-        start = datetime(now.year - years, now.month, now.day)
-
-        df = yf.download(ticker, start=start, end=now)
-
-        if df.empty:
-            return Response({'error': f'No data found for ticker "{ticker}"'}, status=404)
-
-        df = df.reset_index()
-        df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
-
-        data = [
-            {
-                'date': row['Date'].strftime('%Y-%m-%d'),
-                'open': round(row['Open'], 2),
-                'high': round(row['High'], 2),
-                'low': round(row['Low'], 2),
-                'close': round(row['Close'], 2),
-                'volume': int(row['Volume']),
-            }
-            for _, row in df.iterrows()
-        ]
+        try:
+            data = get_ohlcv_history(ticker, years=years)
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_404_NOT_FOUND)
 
         return Response({'ticker': ticker.upper(), 'count': len(data), 'data': data})
 
 
 class StockPriceView(APIView):
     permission_classes = [IsAuthenticated]
-    print('kkkkkkkkkkk')
+
     def get(self, request, symbol):
         try:
             stock = Stock.objects.get(symbol=symbol.upper())
-            print(stock)
         except Stock.DoesNotExist:
             return Response(
                 {'error': 'Stock not found'},
-                status=status.HTTP_404_NOT_FOUND
+                status=status.HTTP_404_NOT_FOUND,
             )
 
-        # Fetch fresh data if no prices exist
         prices = StockPrice.objects.filter(stock=stock)
         if not prices.exists():
             fetch_stock_prices(symbol.upper())
             prices = StockPrice.objects.filter(stock=stock)
 
-        # Optional: filter by period
         period = request.query_params.get('period', '30')
         prices = prices[:int(period)]
 
@@ -118,20 +93,79 @@ class StockPriceView(APIView):
         return Response({
             'symbol': stock.symbol,
             'name': stock.company_name,
-            'prices': serializer.data
+            'prices': serializer.data,
         })
-    
+
 
 class TrainModelView(APIView):
+    """POST /api/v1/ml/train/<ticker>/ — queue an LSTM training job.
+
+    Training takes minutes and is CPU-heavy, so it runs on a Celery worker
+    rather than blocking the request. Returns 202 with a task id the client
+    can poll via TrainStatusView.
+    """
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, tikcer):
+    def post(self, request, ticker):
+        years = int(request.data.get('years', 10))
 
-        years = request.data.years
         try:
-            matrices = run_training_pipeline(tikcer, years)
-            return matrices
-        except:
-            raise Exception('Error')
+            task = train_model_task.delay(ticker, years)
+        except OperationalError:
+            # Broker (Redis) unreachable — can't accept the job right now.
+            return Response(
+                {'error': 'Training queue is unavailable. Please try again later.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
-        
+        return Response(
+            {
+                'message': f'Training queued for {ticker.upper()}',
+                'ticker': ticker.upper(),
+                'task_id': task.id,
+                'status_url': reverse('train_status', args=[task.id]),
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class TrainStatusView(APIView):
+    """GET /api/v1/ml/train/status/<task_id>/ — poll a training job."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, task_id):
+        result = AsyncResult(task_id)
+        data = {'task_id': task_id, 'state': result.state}
+
+        if result.successful():
+            data['result'] = result.result
+        elif result.failed():
+            data['error'] = str(result.result)
+
+        return Response(data)
+
+
+class PredictView(APIView):
+    """GET /api/v1/ml/predict/<ticker>/?days=30 — predict future prices."""
+    permission_classes = [AllowAny]
+
+    def get(self, request, ticker):
+        forecast_days = int(request.query_params.get('days', 30))
+
+        try:
+            predictions, from_cache = get_prediction(ticker, forecast_days=forecast_days)
+            return Response({
+                'ticker': ticker.upper(),
+                'forecast_days': forecast_days,
+                'cached': from_cache,
+                'predictions': predictions,
+            })
+        except FileNotFoundError as e:
+            return Response({'error': str(e)}, status=status.HTTP_404_NOT_FOUND)
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response(
+                {'error': f'Prediction failed: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )

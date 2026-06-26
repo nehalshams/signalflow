@@ -23,4 +23,9 @@ urlpatterns = [
 
     # stock prices
     path('stocks/<str:symbol>/prices/', StockViews.StockPriceView.as_view(), name='stock_prices'),
+
+    # ML endpoints
+    path('ml/train/status/<str:task_id>/', StockViews.TrainStatusView.as_view(), name='train_status'),
+    path('ml/train/<str:ticker>/', StockViews.TrainModelView.as_view(), name='train_model'),
+    path('ml/predict/<str:ticker>/', StockViews.PredictView.as_view(), name='predict'),
 ]
