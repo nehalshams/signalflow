@@ -9,9 +9,9 @@ import { Card } from "@/components/ui/card";
 import { useAuth } from "@/context/AuthContext";
 import { ApiError } from "@/lib/api";
 
-const Login = () => {
+const Register = () => {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { register } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -22,15 +22,19 @@ const Login = () => {
       toast.error("Missing fields", { description: "Enter both email and password." });
       return;
     }
+    if (password.length < 4) {
+      toast.error("Weak password", { description: "Use at least 4 characters." });
+      return;
+    }
     setLoading(true);
     try {
-      await login(email, password);
-      toast.success("Welcome back");
+      await register(email, password);
+      toast.success("Account created", { description: "You're signed in." });
       navigate("/dashboard");
     } catch (err) {
       const message =
-        err instanceof ApiError ? err.message : "Unable to sign in. Please try again.";
-      toast.error("Sign-in failed", { description: message });
+        err instanceof ApiError ? err.message : "Unable to create account. Please try again.";
+      toast.error("Sign-up failed", { description: message });
     } finally {
       setLoading(false);
     }
@@ -59,9 +63,9 @@ const Login = () => {
 
         <Card className="border-border/60 bg-card/60 p-8 backdrop-blur-xl">
           <div className="mb-6 space-y-1.5">
-            <h1 className="font-display text-2xl font-bold tracking-tight">Sign in to your account</h1>
+            <h1 className="font-display text-2xl font-bold tracking-tight">Create your account</h1>
             <p className="text-sm text-muted-foreground">
-              Access AI predictions, your watchlists, and live signals.
+              Start tracking AI predictions and building your watchlist.
             </p>
           </div>
 
@@ -84,18 +88,13 @@ const Login = () => {
             </div>
 
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="password">Password</Label>
-                <a href="#" className="text-xs text-primary hover:underline">
-                  Forgot password?
-                </a>
-              </div>
+              <Label htmlFor="password">Password</Label>
               <div className="relative">
                 <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   id="password"
                   type="password"
-                  autoComplete="current-password"
+                  autoComplete="new-password"
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -106,27 +105,20 @@ const Login = () => {
             </div>
 
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Signing in..." : "Sign in"}
+              {loading ? "Creating account..." : "Create account"}
             </Button>
           </form>
 
           <p className="mt-6 text-center text-sm text-muted-foreground">
-            New to SignalFlow?{" "}
-            <Link to="/register" className="text-primary hover:underline">
-              Create an account
+            Already have an account?{" "}
+            <Link to="/login" className="text-primary hover:underline">
+              Sign in
             </Link>
           </p>
         </Card>
-
-        <Link
-          to="/"
-          className="mt-8 text-center text-xs text-muted-foreground hover:text-foreground"
-        >
-          ← Return to SignalFlow home
-        </Link>
       </div>
     </main>
   );
 };
 
-export default Login;
+export default Register;

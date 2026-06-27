@@ -40,6 +40,10 @@ def train_model_task(self, ticker, years=10):
         ticker: full yfinance ticker, e.g. "RELIANCE.NS"
         years:  years of history to train on
     """
+    # Imported here so the module loads even before Django apps are ready.
+    from stocks.models import TrainingRun
+    from stocks.services import record_training_run, record_training_failure
+
     logger.info('Training model for %s (%d years)', ticker, years)
     try:
         result = Pipeline().train(ticker, years=years)
@@ -47,14 +51,27 @@ def train_model_task(self, ticker, years=10):
         # Most often a transient "no data found" from Yahoo — retry.
         logger.warning('Training %s failed (%s); retrying', ticker, exc)
         raise self.retry(exc=exc)
+    except Exception as exc:  # noqa: BLE001 — record then let Celery mark failed
+        record_training_failure(ticker, exc)
+        logger.exception('Training %s failed permanently', ticker)
+        raise
 
-    logger.info('Trained %s — metrics=%s', ticker, result['metrics'])
+    run = record_training_run(ticker, result)
+    if run.status == TrainingRun.STATUS_DEGRADED:
+        logger.warning('MODEL DRIFT for %s — %s', ticker, run.notes)
+
+    logger.info(
+        'Trained %s — metrics=%s (run #%s, %s)',
+        ticker, result['metrics'], run.id, run.status,
+    )
     return {
         'ticker': result['ticker'],
         'metrics': result['metrics'],
         'epochs_run': result['epochs_run'],
         'training_samples': result['training_samples'],
         'test_samples': result['test_samples'],
+        'run_id': run.id,
+        'status': run.status,
     }
 
 

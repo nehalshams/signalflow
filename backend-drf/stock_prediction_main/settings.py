@@ -56,7 +56,9 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.postgres',
     'rest_framework',
+    'corsheaders',
     'accounts',
     'api',
     'rest_framework_simplejwt',
@@ -65,6 +67,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -181,6 +184,16 @@ CELERY_ENABLE_UTC = False
 # per worker process and don't prefetch extra work.
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_TASK_ACKS_LATE = True
+
+# ── CORS ─────────────────────────────────────────────────────────
+# Allow the Vite dev server (and any configured origins) to call the API.
+CORS_ALLOWED_ORIGINS = [
+    o.strip() for o in os.environ.get(
+        'CORS_ALLOWED_ORIGINS',
+        'http://localhost:5173,http://127.0.0.1:5173',
+    ).split(',') if o.strip()
+]
+
 
 # ── Cache (Redis) ────────────────────────────────────────────────
 # Used to memoize model predictions so repeat requests don't re-run the LSTM.

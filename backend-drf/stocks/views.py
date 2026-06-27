@@ -1,5 +1,4 @@
 from celery.result import AsyncResult
-from django.db.models import Q
 from django.urls import reverse
 from kombu.exceptions import OperationalError
 from rest_framework import generics, status
@@ -9,21 +8,17 @@ from rest_framework.views import APIView
 
 from .models import Stock, WatchlistItem, StockPrice
 from .serializers import StockSerializer, WatchlistItemSerializer, StockPriceSerializer
-from .services import fetch_stock_prices, get_ohlcv_history, get_prediction
+from .services import fetch_stock_prices, get_ohlcv_history, get_prediction, search_stocks
 from .tasks import train_model_task
 
 
-class StockSearchView(generics.ListAPIView):
-    """GET /api/v1/stocks/search/?q=rel -> stocks matching symbol or company name."""
-    serializer_class = StockSerializer
+class StockSearchView(APIView):
+    """GET /api/v1/stocks/search/?q=rel -> ranked matches with fuzzy fallback."""
     permission_classes = [AllowAny]
 
-    def get_queryset(self):
-        query = self.request.query_params.get('q', '').strip()
-        qs = Stock.objects.filter(is_active=True)
-        if not query:
-            return qs.none()
-        return qs.filter(Q(symbol__icontains=query) | Q(company_name__icontains=query))
+    def get(self, request):
+        results = search_stocks(request.query_params.get('q', ''), limit=20)
+        return Response(StockSerializer(results, many=True).data)
 
 
 class WatchlistView(generics.ListCreateAPIView):

@@ -272,7 +272,7 @@ const Index = () => {
             </p>
           </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {features.map((f, i) => (
+            {features.map((f) => (
               <Card
                 key={f.title}
                 className="group relative overflow-hidden border-border/60 bg-gradient-card p-7 transition-smooth hover:border-primary/40 hover:-translate-y-1 hover:shadow-elegant"
