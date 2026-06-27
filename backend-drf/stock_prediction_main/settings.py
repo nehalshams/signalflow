@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     'accounts',
     'api',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'stocks',
 ]
 

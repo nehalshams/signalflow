@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "./config";
+import { emitSessionExpired } from "./session";
 import {
   clearAuth,
   getAccessToken,
@@ -103,8 +104,19 @@ export async function apiFetch<T = unknown>(
   let res = await doFetch(auth ? getAccessToken() : null);
 
   if (res.status === 401 && auth && getRefreshToken()) {
-    const newToken = await refreshAccessToken();
-    res = await doFetch(newToken);
+    try {
+      const newToken = await refreshAccessToken();
+      res = await doFetch(newToken);
+    } catch {
+      // refresh failed — handled by the unrecoverable-401 check below
+    }
+  }
+
+  // An authed request still unauthorized means the session can't be recovered;
+  // clear it and notify the app so it can sign the user out and redirect.
+  if (res.status === 401 && auth) {
+    clearAuth();
+    emitSessionExpired();
   }
 
   const data = await parseBody(res);

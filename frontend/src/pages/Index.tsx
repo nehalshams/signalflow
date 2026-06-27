@@ -137,8 +137,8 @@ const Index = () => {
             <Button asChild variant="outline" className="flex-1">
                 <Link to="/login" onClick={() => setOpen(false)}>Login</Link>
             </Button>
-            <Button className="bg-gradient-primary text-primary-foreground font-semibold hover:opacity-90 shadow-elegant">
-              Register <ArrowRight className="ml-1 h-4 w-4" />
+            <Button asChild className="bg-gradient-primary text-primary-foreground font-semibold hover:opacity-90 shadow-elegant">
+              <Link to="/register">Register <ArrowRight className="ml-1 h-4 w-4" /></Link>
             </Button>
           </div>
           <button
@@ -157,8 +157,12 @@ const Index = () => {
               <a href="#pricing" onClick={() => setOpen(false)} className="py-2">Pricing</a>
               <a href="#testimonials" onClick={() => setOpen(false)} className="py-2">Customers</a>
               <div className="flex gap-2 pt-2">
-                <Button variant="outline" className="flex-1">Login</Button>
-                <Button className="flex-1 bg-gradient-primary text-primary-foreground">Register</Button>
+                <Button asChild variant="outline" className="flex-1">
+                  <Link to="/login" onClick={() => setOpen(false)}>Login</Link>
+                </Button>
+                <Button asChild className="flex-1 bg-gradient-primary text-primary-foreground">
+                  <Link to="/register" onClick={() => setOpen(false)}>Register</Link>
+                </Button>
               </div>
             </div>
           </div>
@@ -182,11 +186,11 @@ const Index = () => {
               SignalFlow fuses real-time market data with deep learning forecasts so you spot the move before the crowd. Built for traders who want signal, not noise.
             </p>
             <div className="flex flex-col sm:flex-row gap-3">
-              <Button size="lg" className="bg-gradient-primary text-primary-foreground font-semibold text-base h-12 px-8 shadow-elegant hover:opacity-90 transition-smooth">
-                Create free account <ArrowRight className="ml-2 h-4 w-4" />
+              <Button asChild size="lg" className="bg-gradient-primary text-primary-foreground font-semibold text-base h-12 px-8 shadow-elegant hover:opacity-90 transition-smooth">
+                <Link to="/register">Create free account <ArrowRight className="ml-2 h-4 w-4" /></Link>
               </Button>
-              <Button size="lg" variant="outline" className="h-12 px-8 text-base border-border/60 hover:bg-secondary transition-smooth">
-                Login to dashboard
+              <Button asChild size="lg" variant="outline" className="h-12 px-8 text-base border-border/60 hover:bg-secondary transition-smooth">
+                <Link to="/login">Login to dashboard</Link>
               </Button>
             </div>
             <div className="flex flex-wrap items-center gap-6 pt-4 text-sm text-muted-foreground">
@@ -417,11 +421,11 @@ const Index = () => {
                 Join thousands of traders already running their book on SignalFlow.
               </p>
               <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
-                <Button size="lg" className="bg-gradient-primary text-primary-foreground font-semibold h-12 px-8 shadow-elegant hover:opacity-90">
-                  Register free <ChevronRight className="ml-1 h-4 w-4" />
+                <Button asChild size="lg" className="bg-gradient-primary text-primary-foreground font-semibold h-12 px-8 shadow-elegant hover:opacity-90">
+                  <Link to="/register">Register free <ChevronRight className="ml-1 h-4 w-4" /></Link>
                 </Button>
-                <Button size="lg" variant="outline" className="h-12 px-8 border-border/60 hover:bg-secondary">
-                  Login
+                <Button asChild size="lg" variant="outline" className="h-12 px-8 border-border/60 hover:bg-secondary">
+                  <Link to="/login">Login</Link>
                 </Button>
               </div>
             </div>

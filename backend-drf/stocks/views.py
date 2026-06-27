@@ -1,15 +1,36 @@
+import logging
+
+import redis
 from celery.result import AsyncResult
+from django.conf import settings
 from django.urls import reverse
-from kombu.exceptions import OperationalError
 from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Stock, WatchlistItem, StockPrice
-from .serializers import StockSerializer, WatchlistItemSerializer, StockPriceSerializer
+from .models import Stock, WatchlistItem, StockPrice, TrainingRun
+from .serializers import (
+    StockSerializer,
+    WatchlistItemSerializer,
+    StockPriceSerializer,
+    TrainingRunSerializer,
+)
 from .services import fetch_stock_prices, get_ohlcv_history, get_prediction, search_stocks
 from .tasks import train_model_task
+
+logger = logging.getLogger(__name__)
+
+
+def _broker_reachable(timeout=2):
+    """Quick check that the Celery broker (Redis) is up, with a short timeout."""
+    try:
+        redis.Redis.from_url(
+            settings.CELERY_BROKER_URL, socket_connect_timeout=timeout
+        ).ping()
+        return True
+    except Exception:  # noqa: BLE001 — any connection error means "not reachable"
+        return False
 
 
 class StockSearchView(APIView):
@@ -104,12 +125,20 @@ class TrainModelView(APIView):
     def post(self, request, ticker):
         years = int(request.data.get('years', 10))
 
+        # Fast liveness check on the broker so a down Redis returns a quick 503
+        # instead of Celery hanging the request while it retries for ~100s.
+        if not _broker_reachable():
+            return Response(
+                {'error': 'Training queue is unavailable. Is Redis running and a Celery worker started?'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
         try:
             task = train_model_task.delay(ticker, years)
-        except OperationalError:
-            # Broker (Redis) unreachable — can't accept the job right now.
+        except Exception as exc:  # noqa: BLE001 — broker/backend unreachable, etc.
+            logger.warning('Could not queue training for %s: %s', ticker, exc)
             return Response(
-                {'error': 'Training queue is unavailable. Please try again later.'},
+                {'error': 'Training queue is unavailable. Is Redis running and a Celery worker started?'},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
@@ -164,3 +193,14 @@ class PredictView(APIView):
                 {'error': f'Prediction failed: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+
+class TrainingRunsView(generics.ListAPIView):
+    """GET /api/v1/ml/training-runs/<ticker>/ — recent training runs + metrics."""
+    serializer_class = TrainingRunSerializer
+    permission_classes = [AllowAny]
+
+    def get_queryset(self):
+        ticker = self.kwargs['ticker'].upper()
+        limit = int(self.request.query_params.get('limit', 10))
+        return TrainingRun.objects.filter(ticker=ticker)[:limit]

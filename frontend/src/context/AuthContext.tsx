@@ -1,7 +1,9 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { toast } from "sonner";
 
 import { loginRequest, logoutRequest, registerRequest } from "@/lib/auth";
+import { onSessionExpired } from "@/lib/session";
 import {
   clearAuth,
   getAccessToken,
@@ -33,6 +35,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const email = getStoredEmail();
     if (token && email) setUser({ email });
     setLoading(false);
+  }, []);
+
+  // When the API layer reports an unrecoverable 401, drop the session. With
+  // `user` cleared, ProtectedRoute redirects to /login.
+  useEffect(() => {
+    return onSessionExpired(() => {
+      clearAuth();
+      setUser((current) => {
+        if (current) {
+          toast.error("Session expired", {
+            id: "session-expired",
+            description: "Please sign in again.",
+          });
+        }
+        return null;
+      });
+    });
   }, []);
 
   async function login(email: string, password: string) {

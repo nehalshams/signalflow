@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Stock, WatchlistItem, StockPrice
+from .models import Stock, WatchlistItem, StockPrice, TrainingRun
 
 class StockSerializer(serializers.ModelSerializer):
     class Meta:
@@ -30,6 +30,17 @@ class StockPriceSerializer(serializers.ModelSerializer):
     class Meta:
         model = StockPrice
         fields = ['date', 'open', 'high', 'low', 'close', 'volume']
+
+
+class TrainingRunSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TrainingRun
+        fields = [
+            'id', 'ticker', 'status',
+            'rmse', 'mae', 'mape', 'mse',
+            'epochs_run', 'training_samples', 'test_samples',
+            'notes', 'created_at',
+        ]
 
 
 

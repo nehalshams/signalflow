@@ -33,6 +33,23 @@ export type TrainStatus = {
   error?: string;
 };
 
+export type TrainingRunStatus = "success" | "degraded" | "failed";
+
+export type TrainingRun = {
+  id: number;
+  ticker: string;
+  status: TrainingRunStatus;
+  rmse: number | null;
+  mae: number | null;
+  mape: number | null;
+  mse: number | null;
+  epochs_run: number | null;
+  training_samples: number | null;
+  test_samples: number | null;
+  notes: string;
+  created_at: string;
+};
+
 /** GET /stocks/<ticker>/ — yfinance OHLCV history (public). */
 export function getPriceHistory(ticker: string, years = 1): Promise<PriceHistory> {
   return apiFetch<PriceHistory>(
@@ -60,4 +77,12 @@ export function trainModel(ticker: string, years = 10): Promise<TrainQueued> {
 /** GET /ml/train/status/<taskId>/ — poll a training job. */
 export function getTrainStatus(taskId: string): Promise<TrainStatus> {
   return apiFetch<TrainStatus>(`/ml/train/status/${encodeURIComponent(taskId)}/`);
+}
+
+/** GET /ml/training-runs/<ticker>/ — recent training runs with metrics. */
+export function getTrainingRuns(ticker: string, limit = 10): Promise<TrainingRun[]> {
+  return apiFetch<TrainingRun[]>(
+    `/ml/training-runs/${encodeURIComponent(ticker)}/?limit=${limit}`,
+    { auth: false },
+  );
 }

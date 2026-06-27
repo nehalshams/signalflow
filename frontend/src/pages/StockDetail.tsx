@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { ApiError } from "@/lib/api";
 import { getPrediction, getPriceHistory, getTrainStatus, trainModel } from "@/lib/ml";
 import { PriceChart } from "@/components/PriceChart";
+import { ModelMetrics } from "@/components/ModelMetrics";
 
 const TERMINAL = ["SUCCESS", "FAILURE"];
 
@@ -60,6 +61,7 @@ const StockDetail = () => {
     if (state === "SUCCESS") {
       toast.success("Model trained");
       queryClient.invalidateQueries({ queryKey: ["prediction", ticker] });
+      queryClient.invalidateQueries({ queryKey: ["trainingRuns", ticker] });
     } else {
       toast.error("Training failed", { description: status.data?.error });
     }
@@ -147,6 +149,10 @@ const StockDetail = () => {
                 </>
               )}
             </Button>
+          </div>
+
+          <div className="mt-6 border-t border-border/60 pt-6">
+            <ModelMetrics ticker={ticker} />
           </div>
         </Card>
       </div>
